@@ -53,38 +53,42 @@ size_t callback_func(void *ptr, size_t size, size_t num_of_members, void *userDa
 
 int main()
 {
+  int return_code = 0;
   setlocale(LC_ALL, "");
   const int winWidth = 600;
   const int winHeight = 250;
   const char *basePath = GetApplicationDirectory();
   const char *fullPath_of_WeatherBanner = NULL;
   const char *fullPath_of_WeatherLogo = NULL;
-
+  cJSON *json = NULL;
+  CURL *curl = NULL;
+  struct Memory chunk ={0};
   weatherData myData = {0};
+  Font customFont ={0};
+
   const char *API_KEY = getenv("OPENWEATHER_API_KEY");
   if (!API_KEY || API_KEY[0] == '\0') {
       printf("Missing API KEY. Set OPENWEATHER_API_KEY\n");
-      return 1;
+      return_code = 1;
+      goto cleanup;
   }
   char url[256] = {0};
   snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=Lahore&appid=%s", API_KEY);
 
-  struct Memory chunk ={0};
   chunk.data = malloc(1);
   if (chunk.data==NULL){
       fprintf(stderr, "malloc failed to allocate data for the chunk");
-      return 1;
+      return_code = 1;
+      goto cleanup;
   }
   chunk.size = 0;
-  cJSON *json = NULL;
-
-  CURL *curl;
   CURLcode result = curl_global_init(CURL_GLOBAL_ALL);
 
   if (result != CURLE_OK)
   {
     printf("Initialization of CURL failed.");
-    return 1;
+      return_code = 1;
+      goto cleanup;
   }
   curl = curl_easy_init();
   if (curl)
@@ -97,6 +101,8 @@ int main()
     if (result != CURLE_OK)
     {
       printf("Error: %s\n", curl_easy_strerror(result));
+      return_code = 1;
+      goto cleanup;
     }
     else
     {
@@ -111,14 +117,16 @@ int main()
             if(strlen(location->valuestring) >= sizeof(myData.city)){
                 fprintf(stderr, "Buffer overflow detected in location string. location length: %zu, buffer length: %zu\n", 
                         strlen(location->valuestring), sizeof(myData.city));
-                return 1;
+                        return_code = 1;
+                        goto cleanup;
             } 
                 strcpy(myData.city, location->valuestring);
         }
         cJSON *sys = cJSON_GetObjectItemCaseSensitive(json, "sys");
         if(!cJSON_IsObject(sys)){
             fprintf(stderr, "Failed to parse object \"sys\"");
-            return 1;
+                        return_code = 1;
+                        goto cleanup;
         }
         cJSON *country = cJSON_GetObjectItemCaseSensitive(sys, "country");
         if (cJSON_IsString(country))
@@ -126,7 +134,8 @@ int main()
             if(strlen(country->valuestring) >= sizeof(myData.country)){
                 fprintf(stderr, "Buffer overflow detected in country string. country length: %zu, buffer length: %zu\n", 
                         strlen(country->valuestring), sizeof(myData.country));
-                return 1;
+                        return_code = 1;
+                        goto cleanup;
             } 
                 strcpy(myData.country, country->valuestring);
         }
@@ -139,7 +148,8 @@ int main()
             if(strlen(weather_name->valuestring) >= sizeof(myData.weatherName)){
                 fprintf(stderr, "Buffer overflow detected in weather_name string. name length: %zu, buffer length: %zu\n", 
                         strlen(weather_name->valuestring), sizeof(myData.weatherName));
-                return 1;
+                        return_code = 1;
+                        goto cleanup;
             }
                 strcpy(myData.weatherName, weather_name->valuestring);
         }
@@ -230,7 +240,8 @@ int main()
   myData.weatherBanner = LoadTexture(fullPath_of_WeatherBanner);
   if(myData.weatherBanner.id==0){
       fprintf(stderr, "unable to load weather banner texture");
-      return 1;
+                        return_code = 1;
+                        goto cleanup;
   }
 
   if(fullPath_of_WeatherLogo==NULL){
@@ -239,14 +250,20 @@ int main()
   myData.weatherlogo = LoadTexture(fullPath_of_WeatherLogo);
   if(myData.weatherlogo.id==0){
       fprintf(stderr, "unable to load weather logo texture");
-      return 1;
+                        return_code = 1;
+                        goto cleanup;
   }
   const char *fontPath = TextFormat("%sassets/font/PressStart2P-Regular.ttf", basePath);
   const int fontSize = 35;
   Rectangle recSrc = {0.0f, 0.0f, (float)myData.weatherBanner.width, (float)myData.weatherlogo.height};
   Rectangle recDest = {0.0f, 0.0f, winWidth, 100.0f};
   // printf("%d qlrj2olthi23thoyn2y",myData.weatherBanner.width);
-  Font customFont = LoadFontEx(fontPath, fontSize, NULL, 0);
+  customFont = LoadFontEx(fontPath, fontSize, NULL, 0);
+  if(customFont.texture.id==0){
+      fprintf(stderr,"Unable to load external font\n");
+      return_code = 1;
+      goto cleanup;
+  }
 
   // RenderTexture2D miniWIN = LoadRenderTexture(600, 120);
 
@@ -278,14 +295,27 @@ int main()
     EndDrawing();
   }
 
-  cJSON_Delete(json);
-  free(chunk.data);
-  curl_easy_cleanup(curl);
-  UnloadFont(customFont);
+cleanup:
+  if(json!=NULL){
+      cJSON_Delete(json);
+  }
+  if(chunk.data!=NULL){
+      free(chunk.data);
+  }
+  if(curl!=NULL){
+      curl_easy_cleanup(curl);
+  }
+  if(customFont.texture.id!=0){
+      UnloadFont(customFont);
+  }
+  if(myData.weatherBanner.id!=0){
   UnloadTexture(myData.weatherBanner);
+  }
+  if(myData.weatherlogo.id!=0){
   UnloadTexture(myData.weatherlogo);
+  }
   // UnloadRenderTexture(miniWIN);
   CloseWindow();
 
-  return 0;
+  return return_code;
 }
